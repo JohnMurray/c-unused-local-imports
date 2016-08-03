@@ -1,0 +1,70 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'fileutils'
+
+options = { :ignores => [] }
+OptionParser.new do |opts|
+  opts.banner = "Usage: c-remove-unused-local-imports [options]"
+  opts.separator ''
+  opts.separator 'Specific options:'
+
+  opts.on('-r', '--recursively', 'Run recursively until no more unused imports are found') do |r|
+    options[:recursively] = r
+  end
+
+  opts.on('-d', '--delete-files', 'Delete unused files as they are found (cannot be used with -p)') do |d|
+    options[:delete_files] = d
+  end
+
+  opts.on('-p', '--print-files', 'Print out unused files as they are found') do |p|
+    options[:print_files] = p
+  end
+
+  opts.on('-i', '--ignore FILE', 'Ignore a file or directory') do |p|
+    options[:ignores] << p
+  end
+
+  opts.separator ''
+  opts.separator 'Common options:'
+
+  opts.on_tail('-h', '--help', 'Show this message') do
+    puts opts
+    exit
+  end
+
+  opts.on_tail('-v', '--verbose', 'Print verbose information during run') do |v|
+    options[:verbose] = v
+  end
+end.parse!
+
+
+#
+# Build up initial index
+#
+DIR_IGNORES = ['.git'].inject(options[:ignores], :<<).map { |d| /^#{d}/ }
+index = Dir['**/*'].select { |f| f =~ /\.(c|h|cpp)$/ && DIR_IGNORES.select{|r| f =~ r}.empty? }
+
+#
+# Iterate through index, build usage index
+#   - The list of things being actively included
+#
+usage_index = []
+def get_includes(file, index)
+  res = []
+  File.open(file).readlines.select do |line|
+    line =~ /^#include "(.*)"$/
+    res << $1
+  end
+  res.reject {|l| l.nil? || !index.include?(l)}
+end
+
+# populate the usage index by looking up each include statement
+index.each {|i| get_includes(i, index).inject(usage_index, :<<)}
+usage_index.uniq!
+unused = (index - usage_index)
+
+#
+# For all the unused files, delete them
+#
+unused.each {|un| FileUtils.rm(un) }
